@@ -9,6 +9,7 @@ import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.json.JSONObject;
 import org.jsoup.Connection.Method;
 import org.jsoup.Connection.Response;
 import org.jsoup.Jsoup;
@@ -46,6 +47,8 @@ public class Signin extends CommonData {
             //Jsoup的Response
             Response res;
             
+            //获取ssotoken的链接
+            String ssotokenUrl;
             //登录链接
             String loginUrl;
             //签到链接
@@ -57,31 +60,43 @@ public class Signin extends CommonData {
             
             //构造登录链接
             StringBuilder sb = new StringBuilder();
-            sb.append("http://passport.yeshj.com/handler/login.ashx");
-            sb.append("?username=");
+            sb.append("http://pass.hujiang.com/quick/account/");
+            sb.append("?account=");
             sb.append(URLEncoder.encode(user, "UTF-8"));
             sb.append("&password=");
             sb.append(MD5.md5(pwd));
-            sb.append("&type=2");
-            sb.append("&r=");
-            sb.append(date.getTime());
-            sb.append("&client_date=");
-            sb.append(dataString);
-            loginUrl = sb.toString();
-            System.out.println(loginUrl);
+            sb.append("&code=&act=loginverify&template=undefined&returnurl=undefined&source=yeshj&rand=" + Math.random());
+            ssotokenUrl = sb.toString();
+            System.out.println(ssotokenUrl);
             
-            //提交登录信息
-            res = Jsoup.connect(loginUrl).userAgent(UA_CHROME).cookies(cookies).referrer(loginUrl).timeout(TIME_OUT).ignoreContentType(true).method(Method.GET).execute();
+            //获取ssotoken
+            //{"code":0,"message":"OK","data":{"userid":11284243,"username":"wolforce","ssotoken":"a5f321123154c8d75571f123456781"}}
+            res = Jsoup.connect(ssotokenUrl).userAgent(UA_CHROME).cookies(cookies).referrer(ssotokenUrl).timeout(TIME_OUT).ignoreContentType(true).method(Method.GET).execute();
             cookies.putAll(res.cookies());
             System.out.println(res.body());
             
-            //login_failed = true;package_crosser = 'up';package_yurow_end = true;
-            //package_crosser = "e1e879c1-c067-494f-b370-9b93e7123da5|1184843";login_success = true;package_yurow_end = true;
-            if(res.body().contains("login_success"))
+            JSONObject jsonObj = new JSONObject(res.body());
+            int code = jsonObj.optInt("code");
+            if(code != 0) {
+                return new String[]{"false", "获取登录信息失败（无法获取ssotoken）"};
+            }
+            
+            //使用ssotoken登录账号
+            //{"code":0,"message":"OK","data":".hujiang.com"}
+            String ssotoken = jsonObj.optJSONObject("data").optString("ssotoken");
+            loginUrl = "http://pass.hujiang.com/quick/synclogin.aspx?token=" + ssotoken + "&remeberdays=14&rand=" + Math.random();
+            res = Jsoup.connect(loginUrl).userAgent(UA_CHROME).cookies(cookies).referrer(ssotokenUrl).timeout(TIME_OUT).ignoreContentType(true).method(Method.GET).execute();
+            cookies.putAll(res.cookies());
+            System.out.println("=========");
+            System.out.println(res.cookies());
+            System.out.println(loginUrl);
+            System.out.println(res.body());
+            
+            if(res.body().contains("\"code\":0") || res.body().contains("var _sso_hujiang = 1;"))
             {
                 //登录成功
                 //提交签到请求
-                res = Jsoup.connect(signUrl).data("X-AjaxPro-Method", "PageCardAwardNew").cookies(cookies).userAgent(UA_CHROME).referrer(loginUrl).timeout(TIME_OUT).ignoreContentType(true).method(Method.POST).execute();
+                res = Jsoup.connect(signUrl).data("X-AjaxPro-Method", "PageCardAwardNew").cookies(cookies).userAgent(UA_CHROME).referrer(ssotokenUrl).timeout(TIME_OUT).ignoreContentType(true).method(Method.POST).execute();
                 System.out.println(res.body());
                 
                 //用正则分析返回的数据
@@ -96,11 +111,11 @@ public class Signin extends CommonData {
                     this.resultFlag = "true";
                     if(coins.length() == 0)
                     {
-                        this.resultStr = "今天已签过到，已连续签到" + days + "天";
+                        this.resultStr = "今天已签过到，共打卡" + days + "天";
                     }
                     else
                     {
-                        this.resultStr = "签到成功，获得" + coins + "沪元，已连续签到" + days + "天";
+                        this.resultStr = "签到成功，获得" + coins + "沪元，共打卡" + days + "天";
                     }
                 }
                 else
